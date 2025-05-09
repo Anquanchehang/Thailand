@@ -281,7 +281,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js";
-    import { getFirestore, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
+    import { getFirestore, doc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore.js";
 
     // Firebase 配置（请替换为你的配置）
     const firebaseConfig = {
@@ -296,6 +296,24 @@
     const db = getFirestore(app);
 
     let carsData = [];
+    let ordersData = [];
+    let currentLangData = {};
+
+    onSnapshot(collection(db, "orders"), snap => {
+      ordersData = snap.docs.map(d => ({
+        id:   d.id,
+        ...d.data()
+      }));
+      // 订单更新了，重新渲染
+      renderCars();
+    });
+
+    // 2) 监听 orders
+    onSnapshot(collection(db, "orders"), snap => {
+      ordersData = [];
+      snap.forEach(d => ordersData.push({ id: d.id, ...d.data() }));
+      renderCars();  // 重新渲染一次，把新订单生效信息带上
+    });
 
     // 价格区间配置
     const dayRanges = [
@@ -445,6 +463,10 @@
     function renderCars(filteredData = carsData) {
       const carList = document.getElementById("carList");
       carList.innerHTML = "";
+
+      const today = new Date();
+      const MS_PER_DAY = 1000*60*60*24;
+      
       filteredData.forEach(car => {
         const rawText = getCarText(car);
         const lines = rawText.split("\n");
@@ -453,6 +475,27 @@
         const imageUrl = (Array.isArray(car.images) && car.images.length > 0)
           ? car.images[0]
           : "https://via.placeholder.com/300";
+
+          const activeOrder = ordersData.find(o=>{
+          return o.carId===car.id
+             && new Date(o.startDate) <= today
+             && new Date(o.endDate)   >= today;
+        });
+        let countdownHtml = "";
+        const lang = localStorage.getItem("selectedLanguage") || "zh";
+        if(activeOrder){
+          const end = new Date(activeOrder.endDate);
+          const daysLeft = Math.ceil((end - today)/MS_PER_DAY);
+          let text;
+          if (lang === "zh") {
+            text = `还车倒计时：${daysLeft} 天`;
+          } else if (lang === "en") {
+            text = `Return in ${daysLeft} days`;
+          } else { // "th"
+            text = `เหลือ ${daysLeft} วันจนถึงวันคืนรถ`;
+          }
+          countdownHtml = `<p style="color:#d9534f;font-weight:bold">${text}</p>`;
+        }
 
         const carDiv = document.createElement("div");
         carDiv.classList.add("car");
@@ -469,10 +512,12 @@
           <div class="car-text">
             <div class="car-title">${firstLine}</div>
             <div class="car-details">${secondAndRest}</div>
+            ${countdownHtml}
           </div>
         `;
         carList.appendChild(carDiv);
       });
+      
     }
 
     // 页面加载时，加载默认语言（但不自动隐藏覆盖层，这样每次都显示覆盖层）
