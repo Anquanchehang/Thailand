@@ -507,14 +507,7 @@
 
         carDiv.innerHTML = `
           <div class="car-img">
-
-            <!-- 改成懒加载：data-src + loading="lazy" -->
-            <img
-              class="lazy"
-              data-src="${imageUrl}"
-              loading="lazy"
-              alt="Car Image"
-            >
+            <img src="${imageUrl}" alt="Car Image">
           </div>
           <div class="car-text">
             <div class="car-title">${firstLine}</div>
@@ -539,29 +532,5 @@
       // document.getElementById("langOverlay").style.display = "none";
     });
   </script>
-    <script>
-      // … 你已经有的 DOMContentLoaded 监听 …
-      window.addEventListener("DOMContentLoaded", async () => {
-        // … 现有语言初始化、filter 初始化 …
-        // 不要隐藏 langOverlay，这里我们添加下面的懒加载初始化
-        const imgs = document.querySelectorAll("img.lazy");
-        if ("IntersectionObserver" in window) {
-          const io = new IntersectionObserver((entries) => {
-            entries.forEach((ent) => {
-              if (ent.isIntersecting) {
-                const img = ent.target;
-                img.src = img.dataset.src;
-                img.classList.remove("lazy");
-                io.unobserve(img);
-              }
-            });
-          });
-          imgs.forEach(img => io.observe(img));
-        } else {
-          // 回退：老浏览器直接加载
-          imgs.forEach(img => img.src = img.dataset.src);
-        }
-      });
-    </script>
 </body>
 </html>
