@@ -98,8 +98,8 @@
     @media (max-width: 768px) {
       .page-wrapper { flex-direction: column; }
       .left-section, .left-section img {
-        width: 100%; max-width: none;
-        margin: 0 auto; display: block;
+        width: 100%; 
+        display: block;
       }
       .right-section { width: 100%; }
     }
@@ -123,13 +123,13 @@
     <div id="messageArea"></div>
     <div class="mb-3">
       <button id="addCarBtn" class="btn btn-success me-2">
-        <i class="fas fa-plus"></i> 加车
+        <i class="fas fa-plus"></i> 加车 add cars
       </button>
       <button id="sortBtn" class="btn btn-primary me-2">
-        <i class="fas fa-sort-numeric-down"></i> 排序
+        <i class="fas fa-sort-numeric-down"></i> 排序 order cars
       </button>
       <button id="batchDeleteBtn" class="btn btn-danger">
-        <i class="fas fa-trash"></i> 批量删除
+        <i class="fas fa-trash"></i> 批量删除 batch cars
       </button>
     </div>
     <div class="row" id="carList"></div>
@@ -141,7 +141,7 @@
 
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-  
+  <script src="https://widget.cloudinary.com/v2.0/global/all.js"></script>
   <script type="module">
     // 检查登录状态
     if (localStorage.getItem('isAdminLoggedIn') !== 'true') {
@@ -177,25 +177,44 @@
       }, 3000);
     }
 
+    async function uploadToCloudinary(file) {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('upload_preset', 'CarImage');  // 你的 unsigned preset 名
+  
+      const res  = await fetch(
+        'https://api.cloudinary.com/v1_1/dffbcvu4c/image/upload',
+        { method: 'POST', body: form }
+      );
+      const json = await res.json();
+      console.log('Cloudinary 返回:', json);
+  
+      // 云端返回的地址字段可能是 secure_url 或 url
+      const url = json.secure_url || json.url;
+      if (url) return url;
+  
+      // 如果都有拿不到，抛出它的 error 信息
+      throw new Error(json.error?.message || 'Upload failed');
+    }
     // 加载车辆数据
     async function loadData() {
       try {
-        const docRef = doc(db, "cars", "data");
+        const docRef  = doc(db, "cars", "data");
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           carsData = docSnap.data().cars || [];
-          // 如果 text 或 description 是字符串，则转换为多语言对象
-          carsData.forEach(car => {
-            if (typeof car.text === "string") {
-              car.text = { zh: car.text, en: "", th: "" };
-            }
-            if (typeof car.description === "string") {
-              car.description = { zh: car.description, en: "", th: "" };
-            }
-          });
         } else {
           carsData = [];
         }
+        // ⭐ 在这里确保每个 car.images 是数组
+        carsData.forEach(car => {
+          if (!Array.isArray(car.images)) {
+            car.images = [];
+          }
+          // 兼容老数据的 text/description
+          if (typeof car.text        === "string") car.text        = { zh: car.text,        en: "", th: "" };
+          if (typeof car.description === "string") car.description = { zh: car.description, en: "", th: "" };
+        });
         renderCars();
       } catch (error) {
         showMessage("Failed to load data: " + error.message, "danger");
@@ -203,11 +222,19 @@
     }
 
     // 实时监听车辆数据更新
-    onSnapshot(doc(db, "cars", "data"), (docSnap) => {
+    onSnapshot(doc(db, "cars", "data"), docSnap => {
       if (docSnap.exists()) {
         carsData = docSnap.data().cars || [];
-        renderCars();
+      } else {
+        carsData = [];
       }
+      // ⭐ 同样这里也要保证 images 数组存在
+      carsData.forEach(car => {
+        if (!Array.isArray(car.images)) {
+          car.images = [];
+        }
+      });
+      renderCars();
     });
 
     // 保存车辆数据
@@ -304,55 +331,36 @@
 
     // 用于在 admin 卡片里生成多张图片的编辑区域
     function renderCarImagesFields(car, carIndex) {
-      if (!car.images) {
-        car.images = [];
-      }
-      let html = `<div style="margin-bottom:10px;">`;
-
-      car.images.forEach((imgUrl, imgIndex) => {
-        html += `
-          <div class="input-group mb-1" style="max-width:500px;">
-            <input
-              type="text"
-              class="form-control form-control-sm"
-              value="${imgUrl}"
-              placeholder="Paste image URL"
-              oninput="updateImageUrlArray(event, ${carIndex}, ${imgIndex})"
-            >
-            <button class="btn btn-danger btn-sm" type="button" onclick="removeImageUrl(${carIndex}, ${imgIndex})">
-              <i class="fas fa-times"></i>
-            </button>
-          </div>
-        `;
-      });
-
-      html += `
-        <button class="btn btn-secondary btn-sm" type="button" onclick="addImageField(${carIndex})">
-          + 图片
-        </button>
+      return `
+        <div class="mb-2">
+          <button class="btn btn-info btn-sm"
+                  onclick="openUploadWidget(${carIndex})">
+            批量上传图片
+          </button>
+        </div>
       `;
-
-      html += `</div>`;
-      return html;
     }
-    // 点击“+图片”按钮时，往 car.images 数组里加一个空字符串
-    window.addImageField = function(carIndex) {
-      carsData[carIndex].images.push("");
-      saveData();
-      renderCars();
-    };
 
-    // 当用户在图片 URL input 中输入时更新数组
-    window.removeImageUrl = function(carIndex, imgIndex) {
-      carsData[carIndex].images.splice(imgIndex, 1);
-      saveData();
-      renderCars();
+    window.openUploadWidget = function(carIndex) {
+      const widget = cloudinary.createUploadWidget({
+        cloudName: 'dffbcvu4c',         // 你的 cloud_name
+        uploadPreset: 'CarImage',       // 你的 unsigned preset
+        multiple: true,                 // 允许多文件
+        folder: 'car_uploads',          // （可选）统一存到该文件夹
+        clientAllowedFormats: ['jpg','png','jpeg']
+      }, (error, result) => {
+        if (!error && result.event === 'queues-end') {
+          // queues-end 事件后，result.info.files 包含所有上传成功文件
+          result.info.files.forEach(f => {
+            carsData[carIndex].images.push(f.uploadInfo.secure_url);
+          });
+          saveData().then(renderCars);
+          showMessage('批量上传完成', 'success');
+        }
+      });
+      widget.open();  
     };
-
-    window.updateImageUrlArray = function(event, carIndex, imgIndex) {
-      carsData[carIndex].images[imgIndex] = event.target.value;
-      saveData();
-    };
+    
 
     function renderCars() {
       const carList = document.getElementById("carList");
@@ -363,27 +371,32 @@
         const firstLine = textObj.zh ? textObj.zh.split("\n")[0] : "";
         const restLines = textObj.zh ? textObj.zh.split("\n").slice(1).join("\n") : "";
 
-        // 生成多张图片展示区域
-        const imagesFieldsHtml = renderCarImagesFields(car, index);
+        const thumbsHtml = (car.images || [])
+          .map(url => `
+            <img src="${url}"
+                class="img-thumbnail me-1 mb-1"
+                style="width:80px; height:80px; object-fit:cover; border-radius:8px;">
+          `).join("");
 
         const cardHtml = `
-          <div class="col-12 mb-4">
-            <div class="card-custom p-3" style="position: relative;">
-              <div class="form-check mb-2">
-                <input class="form-check-input" type="checkbox" ${car.selected ? "checked" : ""} onchange="toggleSelect(${index}, this)">
-              </div>
-              <button class="btn btn-danger btn-sm delete-button" onclick="deleteCar(${index})">
-                <i class="fas fa-trash"></i>
-              </button>
+            <div class="col-12 mb-4">
+              <div class="card-custom p-3" style="position: relative;">
+                <!-- … 其他按钮和输入区 … -->
 
-              <!-- 添加多张图片编辑区域 -->
-              <div class="mt-2">
+                <div class="mt-2">
                 <label class="form-label">多张图片 (images数组):</label>
                 ${renderCarImagesFields(car, index)}
-              </div>
-              
-              <div class="car-title">${firstLine}</div>
-              <div class="car-details">${restLines}</div>
+          
+                <!-- 新增：缩略图预览 -->
+                <div class="mt-2">
+                  <label class="form-label">预览：</label>
+                  <div class="d-flex flex-wrap">
+                    ${thumbsHtml}
+                  </div>
+                </div>
+
+                <div class="car-title">${firstLine}</div>
+                <div class="car-details">${restLines}</div>
               
               <!-- 下面可以加入多语言的编辑区域 -->
               <div class="lang-group mt-3">
